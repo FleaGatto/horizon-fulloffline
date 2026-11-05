@@ -5104,13 +5104,21 @@ pub fn {f}("
     }
 
     /// Every asset a launcher looks for is one the release workflows build, sign and publish.
+    ///
+    /// This fork publishes no releases: `offline-build.yml` builds the offline-only launcher for
+    /// Linux and Windows as workflow artifacts, and upstream's release workflows are not here, so
+    /// there is nothing to check. The guard stays live for anyone who restores them.
     #[test]
     fn platform_assets_are_published() {
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        let read = |path: &str| fs::read_to_string(repo.join(path)).unwrap();
-        let build = read(".github/workflows/game-build.yml");
-        let nightly = read(".github/workflows/nightly-build.yml");
-        let launcher = read(".github/workflows/launcher.yml");
+        let read = |path: &str| fs::read_to_string(repo.join(path)).ok();
+        let (Some(build), Some(nightly), Some(launcher)) = (
+            read(".github/workflows/game-build.yml"),
+            read(".github/workflows/nightly-build.yml"),
+            read(".github/workflows/launcher.yml"),
+        ) else {
+            return;
+        };
         for (os, arch, game, launcher_asset) in PLATFORMS {
             assert!(
                 build.contains(&format!("asset: {game}")),
