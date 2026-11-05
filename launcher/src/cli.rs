@@ -1935,8 +1935,8 @@ fn account_command(action: AccountCmd, as_json: bool) -> Result<(), String> {
                 }));
             } else if accounts.accounts.is_empty() && accounts.offline.is_empty() {
                 println!(
-                    "No Microsoft account signed in. Play needs one that owns Minecraft: Java \
-                     Edition: horizon-launcher account sign-in"
+                    "No offline name yet, so the game makes one up. Pick one with \
+                     `horizon-launcher account offline NAME`."
                 );
             } else {
                 for a in &accounts.accounts {
