@@ -1003,6 +1003,11 @@ pub fn command() -> clap::Command {
 /// command stays: the launcher, packagers and scripts need them, and none drives the game.
 pub const AI_COMMANDS: [&str; 2] = ["mcp", "agent-config"];
 
+/// What the Microsoft commands answer now. This build plays offline only: it never signs in,
+/// so there is no account to refresh, renew a session for, or sign out.
+const NO_MICROSOFT: &str = "This build of Horizon plays offline only: it has no Microsoft \
+                            sign-in. Use `account offline NAME` to pick the name you play as.";
+
 /// The keys `settings` sets.
 const SETTING_KEYS: [&str; 15] = [
     "selected-version",
@@ -1952,84 +1957,15 @@ fn account_command(action: AccountCmd, as_json: bool) -> Result<(), String> {
                         "Playing offline as the game's own name (`account select NAME` to switch)."
                     );
                 }
-                if !accounts.has_owner(account::store()) {
-                    println!("{} {}", account::NoOwner, tr(backend::SIGN_IN_HINT));
-                }
+                // Offline-only build: no account is ever needed, so nothing is missing.
             }
         }
-        AccountCmd::Refresh { who } => {
-            let status = account::session::refresh(&who)?;
-            if as_json {
-                json(serde_json::to_value(&status).map_err(|e| e.to_string())?);
-            } else if status.state != account::session::State::Ready {
-                return Err(format!("{}: {}", status.label(), status.message));
-            } else {
-                println!("{}: {}", status.label(), status.message);
-            }
-        }
-        AccountCmd::Session { who } => {
-            let dir = backend::game_home().join("sessions");
-            match (account::session::renew_for_game(&dir, &who), as_json) {
-                (Ok(file), true) => json(serde_json::json!({ "session_file": file })),
-                (Ok(file), false) => println!("{}", file.display()),
-                (Err(status), true) => json(serde_json::json!({ "authentication": status })),
-                (Err(status), false) => return Err(status.message),
-            }
-        }
-        AccountCmd::SignIn { target: Some(who) } => {
-            let a = find(&accounts, &who)?;
-            let sign_in = account::SignIn::start_for(a.clone());
-            let mut shown = false;
-            let signed_in = loop {
-                match sign_in.state() {
-                    account::SignInState::Code(code) if !shown => {
-                        shown = true;
-                        if as_json {
-                            json(serde_json::json!({
-                                "link": code.verification_uri,
-                                "code": code.user_code,
-                            }));
-                        } else {
-                            eprintln!(
-                                "To sign {} in again, open {} in a browser and enter the code {}",
-                                a.name, code.verification_uri, code.user_code
-                            );
-                        }
-                    }
-                    account::SignInState::Done(result) => break result?,
-                    _ => {}
-                }
-                std::thread::sleep(std::time::Duration::from_millis(200));
-            };
-            if as_json {
-                json(serde_json::json!({ "signed_in": signed_in.uuid }));
-            } else {
-                println!("Signed in as {} again.", signed_in.name);
-            }
-        }
-        AccountCmd::SignIn { target: None } => {
-            let client_id = account::client_id().ok_or(account::NOT_CONFIGURED)?;
-            let ep = account::Endpoints::live();
-            let code = account::device_code(&ep, &client_id)?;
-            eprintln!(
-                "To sign in, open {} in a browser and enter the code {}",
-                code.verification_uri, code.user_code
-            );
-            let ms = account::wait_for_sign_in(&ep, &client_id, &code, &|| false)?;
-            let (signed_in, secrets) = account::finish_sign_in(&ep, ms)?;
-            accounts.add(account::store(), signed_in.clone(), &secrets)?;
-            accounts.save()?;
-            println!("Signed in as {}.", signed_in.name);
-            if let Some(said) = account::no_keychain() {
-                eprintln!("{said}");
-            }
-        }
-        AccountCmd::SignOut { who } => {
-            let a = find(&accounts, &who)?;
-            accounts.remove(account::store(), &a.uuid)?;
-            accounts.save()?;
-            println!("Signed out {}.", a.name);
-        }
+        // Offline-only build: the Microsoft commands are gone. The code they called is still
+        // in the library (nothing in the launcher reaches it), so this is the only answer.
+        AccountCmd::Refresh { .. }
+        | AccountCmd::Session { .. }
+        | AccountCmd::SignIn { .. }
+        | AccountCmd::SignOut { .. } => return Err(tr(NO_MICROSOFT).to_string()),
         AccountCmd::Select { who } => {
             let offline = accounts
                 .offline

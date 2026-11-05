@@ -1979,19 +1979,13 @@ fn download_for_owner(
     fetch: sources::Fetch,
     log: &dyn Fn(String),
 ) -> Result<(), String> {
-    let mut accounts = account::Accounts::load();
-    // The strict gate, never `launch_for_game`: the developer option that lets offline names
-    // play without an owner must not download the game for them.
-    let pass = account::launch(
-        &account::Endpoints::live(),
-        account::client_id().as_deref(),
-        account::store(),
-        &mut accounts,
-    );
-    if let Err(e) = accounts.save() {
-        log(format!("Horizon: the accounts are not saved: {e}"));
-    }
-    download_for(pins, dir, pass, !accounts.accounts.is_empty(), fetch, log)
+    // Offline-only build: this is the one door to Mojang's game files, and it is shut. Nothing
+    // here signs in, so nothing here can decide that someone owns the game; the pass is always
+    // "no owner, nobody signed in" and `download_for` refuses it. Mojang's hosts are reachable
+    // without a token, so the check this used to make was the only thing asking whether the
+    // player owns Minecraft: the launcher reads the player's own install instead
+    // (`Settings::minecraft_dir`), which is what horizon-prepare consumes.
+    download_for(pins, dir, Err(account::NoOwner), false, fetch, log)
 }
 
 /// Downloads Minecraft `id` (any version on Mojang's list, its version file's sha1 from it) into
@@ -2118,7 +2112,7 @@ fn download_for(
     pins: &sources::Pins,
     dir: &Path,
     pass: Result<account::Launch, account::NoOwner>,
-    signed_in: bool,
+    _signed_in: bool,
     fetch: sources::Fetch,
     log: &dyn Fn(String),
 ) -> Result<(), String> {
@@ -2141,19 +2135,11 @@ fn download_for(
                 format!("\n  • Horizon tried to download {v} from Mojang for {name}, but: {e}")
             })
         }
-        // An owner by its last answer, who can't be asked now.
-        Ok(pass) => Err(format!(
-            "\n  • Downloading {v} from Mojang needs your Microsoft account, which could not be \
-             checked: {}",
-            pass.offline.unwrap_or_default()
-        )),
-        Err(_) if signed_in => Err(
-            "\n  • No signed-in account owns Minecraft: Java Edition, so Horizon can't download it."
-                .into(),
-        ),
-        Err(_) => Err(format!(
-            "\n  • Or sign in with the Microsoft account that owns Minecraft: Horizon then \
-             downloads {v} from Mojang itself."
+        // Unreachable in this build: `download_for_owner` never produces a pass with an owner.
+        Ok(_) | Err(_) => Err(format!(
+            "\n  • This build of Horizon never downloads Minecraft. Install {v} with the \
+             official Minecraft launcher, then point Horizon at it: \
+             `horizon-launcher settings minecraft-dir <folder>`."
         )),
     }
 }
@@ -3008,7 +2994,7 @@ pub fn client_as(tag: &str, who: Option<&account::Player>) -> Result<Command, St
         return Err(error);
     }
     let session = match who {
-        None => account::session_for_game(&game_home(), false).map_err(|e| e.to_string()),
+        None => account::session_for_game(&game_home(), true).map_err(|e| e.to_string()),
         Some(who) => account::session_for_game_as(&game_home(), who),
     }
     .map_err(|refused| format!("{refused} {}", crate::i18n::tr(SIGN_IN_HINT)))?;
@@ -4320,10 +4306,9 @@ pub struct Settings {
     /// An older file's switch for the release profile, read when `native_profile` is unset.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub native_release: bool,
-    /// Developer options (hidden: seven clicks on the sidebar's launcher version reveal them):
-    /// offline names play without an account that owns the game, in the window only
-    /// (`account::Accounts::play_as_with`, `account::launch_for_game`). Never a download: the game still
-    /// comes from the player's own install. Off by default, and absent from the file while off.
+    /// Was the hidden developer option that let offline names play without an account that owns
+    /// the game. This build plays offline only, so that is simply how it works and this setting
+    /// changes nothing; it is kept so an older `settings.json` still parses.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub dev_offline: bool,
 }
@@ -4586,9 +4571,9 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// The launcher downloads Mojang's game files (client jar, libraries, assets) only for an
-    /// account the services said owns the game: never without one, and never past the gate by
-    /// the developer option (`Settings::dev_offline`), whose pass has no owner.
+    /// This build never downloads Mojang's game files (client jar, libraries, assets): the one
+    /// caller of `download_for` passes no owner, so every reachable path refuses and the player
+    /// supplies their own install. `download_for`'s owner branch is kept but unreachable.
     #[test]
     fn mojang_downloads_only_for_an_owner() {
         let dir = std::env::temp_dir().join(format!("horizon-owner-only-{}", std::process::id()));
@@ -4682,8 +4667,11 @@ mod tests {
             &backend[start..start + backend[start + 1..].find("\n}\n").unwrap()]
         };
         assert!(body("download_for").contains("mojang::download("));
-        assert!(body("download_for_owner").contains("account::launch("));
+        // Offline-only build: the one door to Mojang's game files neither signs in nor asks
+        // whether anyone owns the game — it refuses, so no reachable path downloads Minecraft.
+        assert!(!body("download_for_owner").contains("account::launch("));
         assert!(!body("download_for_owner").contains("launch_for_game("));
+        assert!(body("download_for_owner").contains("Err(account::NoOwner)"));
         // `download_for` is defined once and called once, by `download_for_owner`.
         assert_eq!(backend.matches("download_for(").count(), 2);
         assert!(body("download_for_owner").contains("download_for("));

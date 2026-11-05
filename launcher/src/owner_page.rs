@@ -5,22 +5,16 @@
 use super::*;
 
 impl Launcher {
-    /// Whether the screen covers the window: no owner, and either Play was refused or the player
-    /// hasn't read it yet. The data question comes first.
+    /// Offline-only build: there is no owner gate, so the screen never covers the window. The
+    /// screenshot preview (`sign_in_preview`) still opens it, which is all it is kept for.
     pub(crate) fn asking_owner(&self) -> bool {
-        (self.owner_shown() == Some(false) || sign_in_preview())
-            && (self.owner_screen_open || !self.settings.owner_notice_seen || sign_in_preview())
-            && !self.asking_consent()
-            && self.opening.is_none()
+        sign_in_preview() && !self.asking_consent() && self.opening.is_none()
     }
 
-    /// `owner` as the window shows it: the developer option that lets offline names play without
-    /// an owner (`dev_options`) hides the gate, as if the keychain hadn't answered yet.
+    /// `owner` as the window shows it. Offline-only build: there is never an owner to show, and
+    /// nothing may read this as "refused", so it answers as the keychain would before it replies.
     pub(crate) fn owner_shown(&self) -> Option<bool> {
-        match self.owner {
-            Some(false) if self.settings.dev_offline => None,
-            owner => owner,
-        }
+        None
     }
 
     /// Opens the screen and starts the sign-in on it.

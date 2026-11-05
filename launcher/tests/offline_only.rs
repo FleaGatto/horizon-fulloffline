@@ -1,16 +1,18 @@
-//! The owner gate from the outside: with no account that owns Minecraft: Java Edition in the
-//! launcher, neither `horizon-launcher play` nor the MCP server's play starts the game.
+//! The offline-only build from the outside: with no account signed in at all, neither
+//! `horizon-launcher play` nor the MCP server's play asks for a Microsoft account. Nothing here
+//! downloads Minecraft either, so without game files to prepare they fail for want of those,
+//! never for want of an account.
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
+/// The refusal the owner gate used to give. No path may produce it any more.
 const REFUSED: &str = "Sign in with a Microsoft account that owns Minecraft: Java Edition to play.";
 
-/// Fresh homes with one installed (not prepared) version and an offline name, as a player who
-/// played offline before the gate has.
+/// Fresh homes with one installed (not prepared) version and an offline name, and no account.
 fn home(name: &str) -> PathBuf {
     let root =
-        std::env::temp_dir().join(format!("horizon-owner-gate-{name}-{}", std::process::id()));
+        std::env::temp_dir().join(format!("horizon-offline-only-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let version = root.join("launcher/versions/v2026.10.27.01");
     std::fs::create_dir_all(&version).unwrap();
@@ -44,22 +46,35 @@ fn text(out: &Output) -> String {
 }
 
 #[test]
-fn the_cli_refuses_to_play_without_an_owner() {
+fn the_cli_never_asks_for_an_account() {
     let root = home("cli");
     let out = launcher(&root, &["play"]).output().unwrap();
     let said = text(&out);
-    assert!(!out.status.success(), "{said}");
-    assert!(said.contains(REFUSED), "{said}");
-    assert!(said.contains("horizon-launcher account sign-in"), "{said}");
-    // Nothing of the game ran, and the offline name is still there.
+    assert!(!said.contains(REFUSED), "{said}");
+    assert!(!said.contains("horizon-launcher account sign-in"), "{said}");
+    // No session is ever written: an offline name hands the game nothing.
     assert!(!root.join("game/sessions").exists());
+    // The offline name is still the one that plays.
     let accounts = std::fs::read_to_string(root.join("launcher/accounts.json")).unwrap();
     assert!(accounts.contains("Builder_1"), "{accounts}");
     let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
-fn the_mcp_server_refuses_to_play_without_an_owner() {
+fn the_cli_never_downloads_minecraft() {
+    let root = home("download");
+    let out = launcher(&root, &["play"]).output().unwrap();
+    let said = text(&out);
+    // Nothing claims to fetch the game from Mojang; the version was installed, not prepared,
+    // so the refusal is about game files, and it names where to point the launcher instead.
+    assert!(!said.contains("downloading"), "{said}");
+    assert!(!said.contains("from Mojang"), "{said}");
+    assert!(!out.status.success(), "{said}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn the_mcp_server_never_asks_for_an_account() {
     let root = home("mcp");
     let mut child = launcher(&root, &["mcp"])
         .stdin(Stdio::piped())
@@ -82,8 +97,9 @@ fn the_mcp_server_refuses_to_play_without_an_owner() {
         .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
         .find(|v| v["id"] == 2)
         .expect("a reply to play");
-    assert_eq!(reply["result"]["isError"], true, "{reply}");
-    let said = reply["result"]["content"][0]["text"].as_str().unwrap();
-    assert!(said.contains(REFUSED), "{said}");
+    let said = reply["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(!said.contains(REFUSED), "{said}");
     let _ = std::fs::remove_dir_all(&root);
 }

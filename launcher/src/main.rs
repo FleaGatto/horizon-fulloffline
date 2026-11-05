@@ -1201,10 +1201,8 @@ impl Launcher {
                                 continue;
                             }
                         };
-                        // Past the gate by the developer option alone is no owner.
-                        if !self.settings.dev_offline {
-                            self.owner = Some(true);
-                        }
+                        // Offline-only build: a launch never proves an owner, so `owner` stays
+                        // as it was (`owner_shown` reports none either way).
                         if let Some(file) = file {
                             cmd.arg("--session-file").arg(file);
                         }
@@ -1840,7 +1838,8 @@ impl Launcher {
         self.starting_client = Some(tag.clone());
         self.play_pressed = Some(Instant::now());
         let tx = self.tx.clone();
-        let offline_without_owner = self.settings.dev_offline;
+        // Offline-only build: every launch is offline (`account::launch_for_game`).
+        let offline_without_owner = true;
         std::thread::spawn(move || {
             backend::complete_assets(&tag);
             let session = account::session_for_game(&backend::game_home(), offline_without_owner);
@@ -2409,10 +2408,10 @@ fn segments<T: Copy + PartialEq + 'static>(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PlayPress {
     Play,
-    /// Not prepared, for an account that owns the game: prepare it (from the player's install,
-    /// else downloaded from Mojang for that account), then play, as the official launcher does.
+    /// Not prepared: prepare it from the player's own Minecraft install, then play. This build
+    /// never downloads the game, so preparing fails when there is no install to read.
     PrepareThenPlay,
-    /// Not prepared and no owner (signing in comes first), or busy preparing or playing.
+    /// Busy preparing or playing.
     Nothing,
 }
 
@@ -2459,13 +2458,15 @@ fn sign_in_change(shown: &mut Option<SignInState>, next: SignInState) -> Option<
     Some(next)
 }
 
-/// `owner`: whether an account here owns the game, by the keychain (`Launcher::owner`).
-fn play_press(prepared: bool, owner: Option<bool>, busy: bool) -> PlayPress {
-    match (prepared, owner) {
+/// Offline-only build: `owner` no longer decides anything. Preparing a version reads the
+/// player's own Minecraft install, which needs no account, so Play prepares whatever the
+/// keychain said. A version that cannot be prepared (no install to read) fails with a message
+/// naming `settings minecraft-dir`, rather than a Play button that does nothing.
+fn play_press(prepared: bool, _owner: Option<bool>, busy: bool) -> PlayPress {
+    match prepared {
         _ if busy => PlayPress::Nothing,
-        (true, _) => PlayPress::Play,
-        (false, Some(true)) => PlayPress::PrepareThenPlay,
-        (false, _) => PlayPress::Nothing,
+        true => PlayPress::Play,
+        false => PlayPress::PrepareThenPlay,
     }
 }
 
@@ -5854,22 +5855,18 @@ mod tests {
         );
     }
 
-    /// An owner's Play works on a version not prepared yet: it prepares it (downloading
-    /// Minecraft from Mojang when this computer has no install), then plays. Without an owner
-    /// it stays off: signing in comes first.
+    /// Offline-only build: Play works on a version not prepared yet whatever the keychain said,
+    /// because preparing reads the player's own install and needs no account. Only being busy
+    /// turns it off.
     #[test]
-    fn play_prepares_first_for_an_owner() {
+    fn play_prepares_first_whatever_the_account() {
         use super::{play_press, PlayPress};
-        assert_eq!(play_press(true, Some(true), false), PlayPress::Play);
-        assert_eq!(play_press(true, None, false), PlayPress::Play);
-        assert_eq!(
-            play_press(false, Some(true), false),
-            PlayPress::PrepareThenPlay
-        );
-        assert_eq!(play_press(false, Some(false), false), PlayPress::Nothing);
-        assert_eq!(play_press(false, None, false), PlayPress::Nothing);
-        assert_eq!(play_press(false, Some(true), true), PlayPress::Nothing);
-        assert_eq!(play_press(true, Some(true), true), PlayPress::Nothing);
+        for owner in [Some(true), Some(false), None] {
+            assert_eq!(play_press(true, owner, false), PlayPress::Play);
+            assert_eq!(play_press(false, owner, false), PlayPress::PrepareThenPlay);
+            assert_eq!(play_press(false, owner, true), PlayPress::Nothing);
+            assert_eq!(play_press(true, owner, true), PlayPress::Nothing);
+        }
     }
 
     /// A server's Join (and every other shortcut) waits like Play: not while the version's

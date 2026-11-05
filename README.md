@@ -32,7 +32,25 @@ Minecraft: Java Edition 26.3, rewritten in Rust. Same worlds, same rules, same t
 
 Get **the Horizon launcher** from [playhorizon.dev](https://playhorizon.dev) or [the launcher releases](https://github.com/horizon-rust/horizon/releases?q=launcher&expanded=true) (Linux x86-64, macOS on Apple Silicon, macOS on Intel from the next Nightly, Windows x64). It installs and updates the game, prepares its files from your copy of Minecraft, and updates itself.
 
-**You need** a Microsoft account that owns Java Edition ([why](docs/microsoft-account.md)) and a GPU with Vulkan or OpenGL 3.3 (Linux), Vulkan or DirectX 12 (Windows), or a Mac (Apple Silicon, or Intel from the next Nightly). An existing Minecraft install (official launcher, Prism, MultiMC...) is reused; without one, Play downloads 26.3 from Mojang for your account. Step by step: [Install and first launch](https://playhorizon.dev/docs/install).
+> ### This is a fork: offline only
+>
+> `horizon-fulloffline` is [horizon-rust/horizon](https://github.com/horizon-rust/horizon) with
+> Microsoft sign-in taken out. It plays as an offline name with no account at all — single
+> player, LAN and `online-mode=false` servers.
+>
+> **It does not download Minecraft.** Upstream's launcher fetches the game from Mojang for an
+> account the services say owns it, and that check was the only thing asking whether you own the
+> game. This fork refuses the download instead of removing the check, so you supply your own
+> install. You still need to own Minecraft to play it.
+>
+> **What no longer works, and cannot:** `online-mode=true` servers, Realms, and Mojang-hosted
+> skins and capes. Those are verified server-side against a real session, so there is nothing to
+> work around — removing sign-in removes the features.
+>
+> Built by [`.github/workflows/offline-build.yml`](.github/workflows/offline-build.yml); the
+> upstream release, parity and nightly workflows are not part of this fork.
+
+**You need** your own Minecraft: Java Edition install and a GPU with Vulkan or OpenGL 3.3 (Linux), Vulkan or DirectX 12 (Windows), or a Mac (Apple Silicon, or Intel from the next Nightly). An existing install (official launcher, Prism, MultiMC...) is reused; this fork never downloads the game, so point it at yours with `horizon-launcher settings minecraft-dir <folder>`. Step by step: [Install and first launch](https://playhorizon.dev/docs/install).
 
 <table>
   <tr>

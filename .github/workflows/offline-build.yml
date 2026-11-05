@@ -1,0 +1,94 @@
+name: offline-build
+# Builds the offline-only launcher for Linux and Windows and uploads the binaries as workflow
+# artifacts. Build only: no release, no signing, no publishing.
+#
+#   gh workflow run offline-build --ref offline-only
+#
+# HORIZON_MSA_CLIENT_ID is deliberately never set: this build has no Microsoft sign-in, and
+# `account::client_id()` answers None whatever the environment says.
+
+on:
+  push:
+    branches: [offline-only]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: offline-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HORIZON_TELEMETRY_URL: "off"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-22.04
+            binary: horizon-launcher
+            asset: horizon-launcher-offline-linux-x86_64
+          - name: windows
+            os: windows-latest
+            binary: horizon-launcher.exe
+            asset: horizon-launcher-offline-windows-x64
+            # The C runtime linked in, so the binary needs no Visual C++ redistributable.
+            rustflags: -C target-feature=+crt-static
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
+    defaults:
+      run:
+        working-directory: launcher
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher
+          shared-key: offline-${{ matrix.name }}
+
+      - name: Linux libraries GPUI links to
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev \
+            libfontconfig-dev libvulkan-dev libasound2-dev patchelf
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Test
+        run: cargo test --release --locked
+
+      - name: It runs, and says sign-in is gone
+        run: |
+          set -euo pipefail
+          bin="target/release/${{ matrix.binary }}"
+          "$bin" --version
+          # The Microsoft commands are refused, and `account list` asks for nothing.
+          out=$("$bin" account sign-in 2>&1 || true)
+          echo "$out"
+          grep -q "plays offline only" <<<"$out"
+          out=$("$bin" account list 2>&1 || true)
+          echo "$out"
+          ! grep -qi "Sign in with a Microsoft account" <<<"$out"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: launcher/target/release/${{ matrix.binary }}
+          if-no-files-found: error
+          retention-days: 14
