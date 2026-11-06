@@ -2971,8 +2971,9 @@ pub fn need_prepared(tag: &str) -> Result<(), String> {
     } else {
         Err(format!(
             "{tag} is not prepared yet. Prepare it first: `horizon-launcher prepare --version {tag}` \
-             uses your own Minecraft {v}, or downloads it from Mojang for the signed-in account \
-             that owns it.",
+             uses your own Minecraft {v}. This build never fetches the game; install {v} with the \
+             official Minecraft launcher if you don't have it, then point Horizon at it with \
+             `horizon-launcher settings minecraft-dir <folder>`.",
             v = game_version(tag)
         ))
     }
